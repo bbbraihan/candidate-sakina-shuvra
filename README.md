@@ -1,126 +1,170 @@
-# Take-Home Project: Faith-Aware Wellness Companion
+# Faith-Aware Wellness Companion
 
-## Background
+A locally-running RAG chatbot that provides compassionate, Islam-grounded emotional
+and spiritual support — built for the Girmairi take-home evaluation.
 
-We are building AI-powered tools to support the personal and spiritual well-being of Muslims navigating stress, identity, and questions of faith. This take-home is a scoped prototype that mirrors the kind of work you would do on the team: an LLM-powered assistant grounded in trustworthy Islamic sources, evaluated rigorously, and designed with production realities in mind.
-
-We expect this to take **2–4 hours**. Use of Cursor, Claude, Copilot, or any other tooling is encouraged — we evaluate engineering judgment, not typing speed. Please do not spend more than 4 hours; we would rather see a smaller, sharper submission than a sprawling one.
+**Prototype choice:** Streamlit UI — fastest path to a demo-able, video-recordable
+interface. A FastAPI backend would be cleaner for production; Streamlit is the right
+call for a 4-hour scoped prototype.
 
 ---
 
-## What this starter package contains
+## Architecture
 
 ```
-starter_package/
-├── README.md             ← this file
-├── SETUP.md              ← setup guide (read first)
-├── corpus/
-│   ├── quran.jsonl       ← ~30 curated verses (Sahih International)
-│   ├── hadith.jsonl      ← ~30 hadith from Sahih al-Bukhari
-│   ├── articles.jsonl    ← 5 original wellness articles
-│   └── labels.json       ← 10 labeled queries for retrieval eval
-└── scripts/
-    └── build_corpus.py   ← how the corpus was assembled (for reference)
+User (text or voice)
+        │
+        ▼
+┌───────────────────────────────────────────────────────┐
+│                   Streamlit UI  (app.py)               │
+│  ┌──────────────────┐    ┌────────────────────────┐   │
+│  │ Voice mode        │    │ Text chat mode          │   │
+│  │ audio_recorder    │    │ st.chat_input           │   │
+│  │ → faster-whisper  │    │                         │   │
+│  │ → pyttsx3 TTS     │    │                         │   │
+│  └────────┬──────────┘    └──────────┬──────────────┘  │
+└───────────┼──────────────────────────┼──────────────────┘
+            │           query           │
+            ▼                           ▼
+┌────────────────────────────────────────────────┐
+│                src/retriever.py                 │
+│  FAISS IndexFlatIP  (cosine via inner product)  │
+│  66 passages: Quran (31) + Hadith (30) +        │
+│  Articles (5), embedded with bge-small-en-v1.5  │
+│  Embedding text = theme + passage text          │
+│  Query prefix = wellness instruction template   │
+│  Cached to faiss_index/ on first run            │
+└──────────────────────┬─────────────────────────┘
+                       │  top-k docs (id + reference + text)
+                       ▼
+┌────────────────────────────────────────────────┐
+│                src/generator.py                 │
+│  1. Python crisis check → crisis line (hard)   │
+│  2. Ollama → qwen2.5:7b-instruct               │
+│  3. System prompt: empathy + NO fabrication +  │
+│     fatwa/medical deferral + sectarian neutral │
+│  4. Response with inline *reference* citations │
+└──────────────────────┬─────────────────────────┘
+                       │  response + latency + tokens
+                       ▼
+              src/logger.py  →  logs/requests.jsonl
 ```
 
-Start by reading **`SETUP.md`**.
+---
+
+## Setup
+
+### Prerequisites
+
+- Python 3.12
+- [Ollama](https://ollama.com) installed and running
+- `qwen2.5:7b-instruct` already pulled: `ollama pull qwen2.5:7b-instruct`
+- `espeak` for TTS (Linux): `sudo apt install espeak`
+
+### Install
+
+```bash
+git clone <repo-url>
+cd candidate-sakina-shuvra
+
+pip install -r requirements.txt
+
+# Optional: copy env config
+cp .env.example .env
+```
+
+### Run the app
+
+```bash
+streamlit run app.py
+```
+
+### Run evaluation
+
+```bash
+python eval/run_all.py
+```
+
+Outputs `EVAL.md` with all metrics.
 
 ---
 
-## ⚠️ Model constraints
+## Model Choice Rationale
 
-**LLM:** Choose any instruction-tuned, openly licensed LLM **≤ 8B parameters** available on Hugging Face that you can run locally. Good options include Qwen 2.5 7B Instruct, Llama 3.1 8B Instruct, Mistral 7B Instruct, Gemma 2 9B Instruct, or Phi-3.5 Mini. In your README, state the **exact** model, source repo, and quantization (e.g., `bartowski/Qwen2.5-7B-Instruct-GGUF`, `Q4_K_M`) and the exact command you used to run it. We will reproduce your eval numbers using this model, so reproducibility information is not optional.
+| Component    | Choice                           | Why                                                                                                                                                                              |
+| ------------ | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| LLM          | `qwen2.5:7b-instruct` via Ollama | Strong multi-rule instruction following at 7B; top of open-weight 7B benchmarks; Ollama's OpenAI-compatible API makes it trivial to swap. Default Ollama quantisation is Q4_K_M. |
+| Embedding    | `BAAI/bge-small-en-v1.5`         | Fixed by spec. 33M params, strong retrieval quality, fast on CPU.                                                                                                                |
+| Vector store | FAISS `IndexFlatIP`              | No server process; single-file cache; exact cosine search via inner product on L2-normalised vectors; 66-doc corpus fits in RAM.                                                 |
+| STT          | `faster-whisper` small           | Best local accuracy/speed on CPU; int8 quantisation; forced `language="en"` prevents mistranscription.                                                                           |
+| TTS          | `pyttsx3` + espeak               | Zero extra model download; fully offline; graceful fallback to system audio if WAV generation fails.                                                                             |
+| UI           | Streamlit                        | Fastest to demo; `audio_recorder_streamlit` provides browser mic capture; `st.audio(autoplay=True)` closes the voice loop.                                                       |
 
-**Embedding model:** Use `BAAI/bge-small-en-v1.5`. This is fixed so that retrieval results are comparable across submissions.
+**Exact model command to reproduce:**
 
-**No API-based LLMs.** Do not use OpenAI, Anthropic, Cohere, Google, or any paid API for generation, embeddings, or evaluation. Everything must run locally from open weights. Submissions using API models will not be evaluated.
+```bash
+ollama pull qwen2.5:7b-instruct
+ollama run qwen2.5:7b-instruct
+```
 
-Model selection is part of what we are evaluating — explain in your README **why** you chose the model you did. A Lead AI/ML Engineer should be able to extract strong behavior from a constrained ≤8B model through good prompting, retrieval, and evaluation, not by reaching for a frontier API.
+### Why not reranking?
 
----
+With 66 documents a cross-encoder adds ~500ms latency with minimal recall gain. Justified at 10k+ docs.
 
-## Deliverables
+### Retrieval strategy details
 
-A GitHub repository (or zip) containing:
-
-1. **Working prototype** — CLI, FastAPI endpoint, or a minimal Streamlit/Gradio UI. Your choice; justify it briefly.
-2. **README** with setup instructions, an architecture diagram (a hand sketch is fine), key design decisions, model choice rationale, and tradeoffs you made under the time budget.
-3. **`EVAL.md`** — your evaluation report with actual numbers.
-4. **Optional 3–5 minute Loom walkthrough.** Helpful but not required.
-
----
-
-## Required functionality
-
-### 1. RAG over the provided corpus
-- Build an embedding index using a vector store of your choice (FAISS, Chroma, pgvector, LanceDB, etc.). Justify the choice in your README.
-- Use the fixed `bge-small-en-v1.5` embedding model.
-- Retrieve top-k passages relevant to the user's emotional or spiritual query.
-- Each corpus record has an `id` and a `reference` field — use them for citations.
-
-### 2. LLM-powered response generation
-- Use your chosen local LLM (see Model constraints above).
-- Your system prompt must produce responses that:
-  - (a) are empathetic and non-judgmental,
-  - (b) cite retrieved sources using their `reference` (e.g., *Surah Ar-Ra'd 13:28*, *Sahih al-Bukhari 6369*),
-  - (c) **never fabricate verses or hadith**,
-  - (d) avoid issuing medical advice or fatwa-level rulings, deferring appropriately.
-
-### 3. Voice I/O
-Use **fully local, free** components — no paid APIs:
-- **Speech-to-text**: `faster-whisper` or `openai-whisper` (local), or the browser Web Speech API.
-- **Text-to-speech**: Piper, Coqui TTS, or `pyttsx3` (all local and free).
-- Must work end-to-end: user speaks → assistant speaks back.
-
-### 4. Evaluation framework (the differentiator)
-Build a small but real eval harness with **at least 10 test cases** covering:
-- **Retrieval quality** — recall@k against the provided `corpus/labels.json` (we recommend reporting recall@3 and recall@5).
-- **Faithfulness / no-hallucination** — does the response only cite passages that were actually retrieved? Using your local LLM itself as the judge is acceptable; document the rubric. Manual labels for a few cases are also welcome.
-- **Safety** — adversarial prompts including suicidal ideation, requests for fatwa, sectarian bait, and prompt-injection attempts. Define expected behavior for each and score.
-- **Latency** — p50/p95 for retrieval, generation, and the end-to-end voice round-trip on your hardware (state your specs).
-
-Output a results table in `EVAL.md`.
-
-### 5. Production-mindedness
-- Configuration via environment variables; no hardcoded paths or secrets.
-- Structured logging of every request: prompt, retrieved chunk IDs, response, latency, and token count.
-- Graceful fallback when STT, TTS, or the LLM fails.
+- **Embedding enrichment**: passage text is prefixed with its `theme` tag at index time (e.g. _"patience, trials. And We will surely test you…"_) to boost thematic semantic matching.
+- **Query prefix**: queries are prefixed with `"Represent this wellness question for searching relevant Islamic guidance: …"` — a known trick to improve bge-small recall by aligning query/document spaces.
+- **top-k=5 default**: gives recall@5 margin while keeping context window manageable.
 
 ---
 
-## Out of scope
+## Key Design Decisions
 
-Authentication, polished UI, cloud deployment, model training or fine-tuning. We want depth on **RAG, evaluation, and safety**, not breadth.
+**Safety is a hard-stop, not a prompt suggestion.**
+Suicidal ideation detection runs in Python _before_ the LLM call (`generator.py:_is_crisis()`). No prompt injection or jailbreak can bypass it — the LLM is never even invoked.
 
----
+**No fabrication by construction.**
+The system prompt explicitly forbids citing anything outside the `CONTEXT` block and instructs the model to say "I don't have a source for this" rather than hallucinate. A faithfulness judge (same LLM) audits this in eval.
 
-## How we will evaluate
+**Culturally aware, non-judgmental tone.**
+The system prompt is written for a Muslim audience: it uses the correct transliterations (_tawakkul_, _du'a_, _dhikr_), avoids imposing any single school of thought, and defers fatwa-level questions to qualified scholars — not to silence the question but to respect the weight of Islamic jurisprudence.
 
-| Area | Weight | What "strong" looks like |
-|---|---|---|
-| RAG design | 20% | Sensible chunking, justified retrieval strategy, considered hybrid search or reranking, citations tied to retrieved IDs |
-| Evaluation framework | 25% | Real metrics with numbers. Retrieval and generation evaluated separately. Adversarial set included. |
-| Safety & domain handling | 20% | Crisis routing (e.g., suicidal ideation → helpline), no fabricated scripture, refuses to issue fatwa, culturally aware tone |
-| Voice integration | 10% | Reliable round-trip, error handling, reasonable latency |
-| Code quality & structure | 10% | Clear modules (retriever / generator / evaluator / voice), typed, testable |
-| Production thinking | 10% | Logging, configs, latency awareness, observable failures |
-| Communication | 5% | README explains *why*, not just *what*; tradeoffs and model choice called out explicitly |
+**Embeddings cached to disk.**
+`faiss_index/corpus.index` + `corpus_meta.pkl` written on first run. Subsequent starts are instant.
 
----
+**Structured logging on every request.**
+`logs/requests.jsonl` — query, retrieved chunk IDs, response snippet, latency, token count. Fully observable without a metrics server.
 
-## Submission
+**Graceful degradation.**
 
-Send a link to the repo (or a zip) plus your `EVAL.md` and any video walkthrough. In the email, please include a short note (≤200 words) on what you would build next if you had another full day.
-
-Your submission must include **clear instructions for us to reproduce your evaluation locally**, including the exact model name, quantization, and the command to pull or run it.
+- LLM timeout/error → user-facing apology message, error logged.
+- STT failure → text input shown, error surfaced in UI.
+- TTS WAV empty → falls back to `pyttsx3.speak()` on system audio.
+- All failures caught with `try/except`, logged at WARNING level.
 
 ---
 
-## A few practical tips
+## Voice I/O Round-Trip
 
-- **Start with the eval harness, not the chatbot.** If you build retrieval and evaluation first, every later change is measurable. Candidates who build the full pipeline and *then* try to evaluate it usually run out of time.
-- **A 7B–8B model will surprise you on quality if you prompt it well.** Few-shot examples, structured output (JSON with a `citations` field), and clear system-prompt constraints matter more than model size at this scale.
-- **Cache embeddings to disk.** Recomputing them on every startup will eat your time budget.
-- **Be honest in `EVAL.md`.** Failure modes you identified and didn't have time to fix are worth more than glossed-over numbers. We read these carefully.
+1. User clicks mic button (`audio_recorder_streamlit`) → WAV bytes captured in browser
+2. Saved to temp file → `faster-whisper` STT with `language="en"` forced
+3. Transcribed text shown to user for confirmation
+4. RAG pipeline runs (retrieval + generation)
+5. Response displayed as text + spoken back via `pyttsx3` WAV → `st.audio(autoplay=True)`
 
-Good luck — we are looking forward to seeing how you think.
+---
+
+## Tradeoffs Under Time Budget
+
+| Tradeoff              | Decision                                                                                  |
+| --------------------- | ----------------------------------------------------------------------------------------- |
+| No BM25 hybrid search | Dense-only sufficient for 66 docs; BM25 would help on keyword queries like "Bukhari 6369" |
+| pyttsx3 over Piper    | Piper quality is better but needs model download; pyttsx3 + espeak works out of the box   |
+| No chunk splitting    | Articles ~300 words each — acceptable as single passages; splitting would help recall at  |
+
+logs/ # auto-generated request log
+
+```
+
+```
