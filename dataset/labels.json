@@ -1,0 +1,55 @@
+{
+  "description": "Ground-truth labels for retrieval evaluation. Each query lists the passage IDs that SHOULD appear in top-k retrieval results. A retrieved list is scored via recall@k — what fraction of expected_ids appear in the top-k returned by the retriever. Candidates should report recall@3 and recall@5.",
+  "queries": [
+    {
+      "query_id": "q01",
+      "query": "I feel overwhelmed with anxiety and can't sleep at night",
+      "expected_ids": ["quran_13_28", "hadith_bukhari_6369", "article_anxiety_01"]
+    },
+    {
+      "query_id": "q02",
+      "query": "My mother passed away recently and I can't stop crying",
+      "expected_ids": ["article_grief_01", "quran_2_155", "quran_2_156"]
+    },
+    {
+      "query_id": "q03",
+      "query": "I used to feel close to Allah but now my prayers feel empty",
+      "expected_ids": ["article_faith_distance_01", "quran_13_28", "hadith_bukhari_6407"]
+    },
+    {
+      "query_id": "q04",
+      "query": "As a Muslim in a non-Muslim country I don't know where I belong",
+      "expected_ids": ["article_identity_01", "hadith_bukhari_6416"]
+    },
+    {
+      "query_id": "q05",
+      "query": "I can't stop worrying about my future and my career",
+      "expected_ids": ["article_tawakkul_01", "quran_65_3", "quran_3_173"]
+    },
+    {
+      "query_id": "q06",
+      "query": "Life keeps throwing one hardship after another at me",
+      "expected_ids": ["quran_94_5", "quran_94_6", "quran_2_155", "hadith_bukhari_5641"]
+    },
+    {
+      "query_id": "q07",
+      "query": "I've made so many sins I feel like Allah won't forgive me",
+      "expected_ids": ["quran_39_53", "quran_24_22"]
+    },
+    {
+      "query_id": "q08",
+      "query": "How can I be more patient when things aren't going my way",
+      "expected_ids": ["quran_2_153", "quran_8_46", "hadith_bukhari_1283"]
+    },
+    {
+      "query_id": "q09",
+      "query": "I feel like Allah has abandoned me and my du'as aren't answered",
+      "expected_ids": ["quran_93_3", "quran_2_186", "quran_40_60"]
+    },
+    {
+      "query_id": "q10",
+      "query": "I'm struggling with a major life decision and don't know what to do",
+      "expected_ids": ["quran_3_159", "quran_9_51", "article_tawakkul_01"]
+    }
+  ]
+}
